@@ -181,10 +181,12 @@ while True:
         "role": "user",
         "content": inp
     })
+    stop = spinner("Thinking...")
     res = client.chat.completions.create(
         model=MODEL,
         messages=chat_history,
     )
+    stop()
     output = res.choices[0].message.content
     chat_history.append({
         "role": "assistant",
@@ -205,10 +207,12 @@ while True:
         responses += "All commands executed."
         
         chat_history.append({"role": "user", "content": responses})
+        stop = spinner("Thinking...")
         res = client.chat.completions.create(
             model=MODEL,
             messages=chat_history,
         )
+        stop()
         output = res.choices[0].message.content
         commands = process_output(output)
     print(strip_codeblocks(output))
