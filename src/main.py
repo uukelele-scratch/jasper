@@ -1,137 +1,131 @@
-from direct.showbase.ShowBase import ShowBase
-from direct.actor.Actor import Actor
-from panda3d.core import DirectionalLight, AmbientLight, loadPrcFileData, TextNode
-from direct.gui.DirectGui import DirectEntry, DirectButton, DirectLabel
-
+import sys
 import threading
-import queue
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer
+
+from QPanda3D.Panda3DWorld import Panda3DWorld
+from QPanda3D.QPanda3DWidget import QPanda3DWidget, QPanda3DSynchronizer
+
+from direct.actor.Actor import Actor
+from panda3d.core import loadPrcFileData
 
 from actions import Jasper, client
 
+def patched_synchronizer_init(self, qPanda3DWidget, FPS=60):
+    QTimer.__init__(self)
+    self.qPanda3DWidget = qPanda3DWidget
+    dt = 1000. / FPS
+    self.setInterval(int(dt))
+    self.timeout.connect(self.tick)
+
+QPanda3DSynchronizer.__init__ = patched_synchronizer_init
 
 loadPrcFileData("", "load-file-type gltf panda3d_gltf.core:GltfLoader")
 loadPrcFileData("", "model-cache-dir /dev/null")
 
-class MyApp(ShowBase):
+
+class JasperPandaWorld(Panda3DWorld):
     def __init__(self):
-        super().__init__()
-        
+        Panda3DWorld.__init__(self)
+
         self.setBackgroundColor(0.5, 0.5, 0.5)
-        self.disableMouse()
 
         model_path = "models/animations/eric-rigged-001-rigged-3d-business-man.glb"
-        
         animations_to_load = {
-            "idle":                "models/animations/idle.glb",
-            "jump":                "models/animations/jump.glb",
-            "left_strafe":         "models/animations/left strafe.glb",
-            "left_strafe_walking": "models/animations/left strafe walking.glb",
-            "left_turn_90":        "models/animations/left turn 90.glb",
-            "left_turn":           "models/animations/left turn.glb",
-            "right_strafe":        "models/animations/right strafe.glb",
-            "right_strafe_walking":"models/animations/right strafe walking.glb",
-            "right_turn_90":       "models/animations/right turn 90.glb",
-            "right_turn":          "models/animations/right turn.glb",
-            "run":                 "models/animations/running.glb",
-            "walk":                "models/animations/walking.glb",
-            "thinking":            "models/animations/Thinking.glb",
-            "executing":           "models/animations/Searching Files High.glb",
-            "searching":           "models/animations/Rummaging.glb"
+            "idle": "models/animations/idle.glb", "jump": "models/animations/jump.glb",
+            "left_strafe": "models/animations/left strafe.glb", "left_strafe_walking": "models/animations/left strafe walking.glb",
+            "left_turn_90": "models/animations/left turn 90.glb", "left_turn": "models/animations/left turn.glb",
+            "right_strafe": "models/animations/right strafe.glb", "right_strafe_walking": "models/animations/right strafe walking.glb",
+            "right_turn_90": "models/animations/right turn 90.glb", "right_turn": "models/animations/right turn.glb",
+            "run": "models/animations/running.glb", "walk": "models/animations/walking.glb",
+            "thinking": "models/animations/Thinking.glb", "executing": "models/animations/Searching Files High.glb",
+            "searching": "models/animations/Rummaging.glb"
         }
-
         
-        self.actor = Actor(model_path, animations_to_load)
-        self.actor.reparent_to(self.render)
-        self.actor.setPos(0, 0, 0)
+        try:
+            self.actor = Actor(model_path, animations_to_load)
+            self.actor.reparent_to(self.render)
+            self.actor.setPos(0, 0, 0)
+            self.actor.loop("idle")
 
-        self.floor = self.loader.loadModel("models/environment")
-        self.floor.reparentTo(self.render)        
-        self.floor.setScale(100, 100, 1)
-        self.floor.setPos(0, 0, 0)
-
-        self.camera.setPos(0, -4, 1)
-        self.camera.setHpr(0, 0, 0)
-
-
-        self.jasper_queue = queue.Queue()
-        self.jasper = Jasper(client, callback=self.jasper_callback)
-        self.taskMgr.add(self.check_jasper_queue, "checkJasperQueueTask")
-
-        self.input_field = DirectEntry(
-            text="",
-            scale=0.05,
-            pos=(-0.8, 0, -0.9), # Position on screen
-            width=25,
-            initialText="Type your message...",
-            numLines=1,
-            focus=1, # Start with the cursor active here
-            command=self.send_from_gui # Function to call on Enter key
-        )
-        
-        # Create a "Send" button
-        self.send_button = DirectButton(
-            text="Send",
-            scale=0.05,
-            pos=(0.6, 0, -0.9),
-            command=self.send_from_gui # Function to call on click
-        )
-        
-        # Create a label to display Jasper's output messages
-        self.output_label = DirectLabel(
-            text="Jasper is waiting.",
-            scale=0.06,
-            pos=(0, 0, 0.8),
-            text_align=TextNode.ACenter,
-            frameColor=(0, 0, 0, 0.2), # Semi-transparent background
-            text_wordwrap=25
-        )
-        
-        self.actor.loop("idle")
-
-    def send_from_gui(self, text_to_send=None):
-        # The text_to_send argument is automatically passed when Enter is pressed.
-        # We get it directly from the widget if the button was pressed.
-        if text_to_send is None:
-            text_to_send = self.input_field.get()
+            self.floor = self.loader.loadModel("models/environment")
+            self.floor.reparentTo(self.render)
+            self.floor.setScale(100, 100, 1)
+            self.floor.setPos(0, 0, 0)
             
-        if text_to_send.strip() != "":
-            # Call our existing, non-blocking function!
-            self.send_message_in_thread(text_to_send)
-            # Clear the input field for the next message
-            self.input_field.set("")
-            self.input_field['initialText'] = ''
+            self.cam.setPos(0, -4, 1)
+            self.cam.setHpr(0, 0, 0)
+            
+        except Exception as e:
+            print(f"FATAL: Could not load models/animations. Error: {e}")
+            raise e
 
-    def jasper_callback(self, info: dict):
-        self.jasper_queue.put(info)
 
-    def check_jasper_queue(self, task):
-        # Process all messages currently in the queue.
-        while not self.jasper_queue.empty():
-            try:
-                info = self.jasper_queue.get_nowait()
-                # Now that we are in the main thread, it is SAFE to handle the data.
-                self.handle_jasper_info(info)
-            except queue.Empty:
-                # This can happen in rare cases, just ignore it.
-                break
+class JasperWorker(QThread):
+    info_received = pyqtSignal(dict)
+    def __init__(self, message, jasper_instance):
+        super().__init__()
+        self.message = message
+        self.jasper = jasper_instance
+        self.jasper.callback = self.callback
+
+    def run(self):
+        self.jasper.send_message(self.message)
+
+    def callback(self, info):
+        self.info_received.emit(info)
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Jasper Assistant")
+        self.setGeometry(100, 100, 800, 600)
         
-        return task.cont # Continue this task every frame
-    
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        layout = QVBoxLayout(main_widget)
+        
+        self.world = JasperPandaWorld()
+        
+        self.panda_widget = QPanda3DWidget(self.world)
+        layout.addWidget(self.panda_widget, 1)
+
+        controls_layout = QHBoxLayout()
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("Type your message...")
+        self.input_field.returnPressed.connect(self.send_from_gui)
+        controls_layout.addWidget(self.input_field)
+        
+        self.send_button = QPushButton("Send")
+        self.send_button.clicked.connect(self.send_from_gui)
+        controls_layout.addWidget(self.send_button)
+        layout.addLayout(controls_layout)
+        
+        self.output_label = QLabel("Welcome.")
+        self.output_label.setStyleSheet("font-size: 14px; padding: 5px;")
+        layout.addWidget(self.output_label)
+
+        self.jasper = Jasper(client) 
+        self.jasper_worker = None
+
     def handle_jasper_info(self, info: dict):
-        if info.get("message"):
-            print(f"Jasper Message: {info['message']}")
-            self.output_label['text'] = info['message']
-        
-        if info.get("state"):
-            print(f"Changing state to: {info['state']}")
-            self.actor.loop(info["state"])
+        if message := info.get("message"):
+            self.output_label.setText(message)
+        if state := info.get("state"):
+            if hasattr(self.world, 'actor') and self.world.actor:
+                self.world.actor.loop(state)
 
-    def send_message_in_thread(self, message: str):
-        print(f"Starting worker thread to send message: '{message}'")
-        self.output_label['text'] = "..." # Show user we are thinking
-        thread = threading.Thread(target=self.jasper.send_message, args=(message,))
-        thread.start()
+    def send_from_gui(self):
+        text_to_send = self.input_field.text()
+        if text_to_send.strip() != "" and (self.jasper_worker is None or not self.jasper_worker.isRunning()):
+            self.jasper_worker = JasperWorker(text_to_send, self.jasper)
+            self.jasper_worker.info_received.connect(self.handle_jasper_info)
+            self.jasper_worker.start()
+            self.input_field.clear()
 
-
-app = MyApp()
-app.run()
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())
