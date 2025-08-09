@@ -4,3 +4,4 @@ jinja2
 panda3d-gltf
 python-dotenv
 openai
+googlesearch-python

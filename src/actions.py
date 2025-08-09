@@ -9,6 +9,7 @@ import re
 import subprocess
 import threading
 import time
+import googlesearch
 
 client = OpenAI(
     api_key = os.getenv("GEMINI_API_KEY"),
@@ -81,6 +82,17 @@ print("Hello!")
 Whenever you execute a command, you will receive the process output as well as exit code, so that you can decide on what to do next.
 You should only execute one piece of code at a time, so that you can use the previous output to decide whether you should continue or change.
 For safety, the timeout for all code execution is limited to 10 seconds.
+The user can see neither your commands being sent nor the command output; it is up to you to explain the command output to the user.
+
+You should think outside the box when being asked to do something that you initially perceive as impossible.
+For instance, if the user asks you to close the Settings window, instead of saying that your current tools do not allow you to do so, you should come up with a solution.
+In this scenario, a solution would be to use shell to `pip install pygetwindow`, then execute a python snippet that uses pygetwindow to close the window.
+
+For web search, you can also use this:
+
+```execute:search
+query
+```
 """
 
 prompt = Template(sys_prompt).render(
@@ -149,6 +161,12 @@ def execute_code(command_tuple):
     elif lang == "cmd":
         result = subprocess.run(code, shell=True, capture_output=True, text=True, timeout=10)
         return result.stdout + result.stderr
+    elif lang == "search":
+        res = "## Search Results"
+        results = googlesearch.search(code, advanced=True)
+        for result in results:
+             res += f"\n### {result.title}\n{result.url}\n{result.description}"
+        return res
     else:
         return f"Unknown execution language: {lang}"
 
