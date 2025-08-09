@@ -5,3 +5,4 @@ panda3d-gltf
 python-dotenv
 openai
 googlesearch-python
+PyQt5
