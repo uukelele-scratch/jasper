@@ -17,8 +17,10 @@ client = OpenAI(
     base_url = "https://generativelanguage.googleapis.com/v1beta/openai/",
 )
 
+DEBUG = bool(os.getenv("DEBUG")) or False
+
 class Jasper:
-    def __init__(self, client: OpenAI, model: str = "gemini-2.5-flash", callback: Callable = None):
+    def __init__(self, client: OpenAI, model: str = "gemini-2.5-flash", callback: Callable = None, overrides: dict = {}):
         self.client = client
         self.model = model
         self.callback = callback or (lambda *a, **k: None)
@@ -33,6 +35,11 @@ class Jasper:
             user = getpass.getuser(),
             device_name = platform.node(),
         )
+
+        self.overrides = overrides
+
+        if overrides.get("sys_prompt"):
+            self.prompt += "\n" + overrides["sys_prompt"]
 
         self.messages = [{
             "role": "system",
@@ -92,6 +99,8 @@ class Jasper:
             for result in results:
                 res += f"\n### {result.title}\n{result.url}\n{result.description}"
             return res
+        elif self.overrides.get("execute") and self.overrides["execute"].get(lang):
+            return self.overrides["execute"][lang](code)
         else:
             return f"Unknown execution language: {lang}"
         
@@ -107,6 +116,7 @@ class Jasper:
         )
         self.callback({"state":"idle"})
         output = res.choices[0].message.content
+        if DEBUG: print(output)
         self.messages.append({
             "role": "assistant",
             "content": output
@@ -122,6 +132,7 @@ class Jasper:
                     pass
                 responses += res + "\n"
             responses += "All commands executed."
+            if DEBUG: print(responses)
             
             self.messages.append({"role": "user", "content": responses})
             self.callback({"state":"thinking"})
@@ -131,5 +142,6 @@ class Jasper:
             )
             self.callback({"state":"idle"})
             output = res.choices[0].message.content
+            if DEBUG: print(output)
             commands = self._process_output(output)
         self.callback({"message": self._strip_codeblocks(output)})

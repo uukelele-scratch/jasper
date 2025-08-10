@@ -1,6 +1,6 @@
 import sys
 import threading
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QTextEdit
 from PyQt5.QtCore import QThread, pyqtSignal, QTimer
 
 from QPanda3D.Panda3DWorld import Panda3DWorld
@@ -8,6 +8,8 @@ from QPanda3D.QPanda3DWidget import QPanda3DWidget, QPanda3DSynchronizer
 
 from direct.actor.Actor import Actor
 from panda3d.core import loadPrcFileData
+
+from jinja2 import Template
 
 from actions import Jasper, client
 
@@ -23,6 +25,23 @@ QPanda3DSynchronizer.__init__ = patched_synchronizer_init
 loadPrcFileData("", "load-file-type gltf panda3d_gltf.core:GltfLoader")
 loadPrcFileData("", "model-cache-dir /dev/null")
 
+animations_to_load = {
+    "idle":                "models/animations/idle.glb",
+    "jump":                "models/animations/jump.glb",
+    "left_strafe":         "models/animations/left strafe.glb",
+    "left_strafe_walking": "models/animations/left strafe walking.glb",
+    "left_turn_90":        "models/animations/left turn 90.glb",
+    "left_turn":           "models/animations/left turn.glb",
+    "right_strafe":        "models/animations/right strafe.glb",
+    "right_strafe_walking":"models/animations/right strafe walking.glb",
+    "right_turn_90":       "models/animations/right turn 90.glb",
+    "right_turn":          "models/animations/right turn.glb",
+    "run":                 "models/animations/running.glb",
+    "walk":                "models/animations/walking.glb",
+    "thinking":            "models/animations/Thinking.glb",
+    "executing":           "models/animations/Searching Files High.glb",
+    "searching":           "models/animations/Rummaging.glb"
+}
 
 class JasperPandaWorld(Panda3DWorld):
     def __init__(self):
@@ -31,16 +50,6 @@ class JasperPandaWorld(Panda3DWorld):
         self.setBackgroundColor(0.5, 0.5, 0.5)
 
         model_path = "models/animations/eric-rigged-001-rigged-3d-business-man.glb"
-        animations_to_load = {
-            "idle": "models/animations/idle.glb", "jump": "models/animations/jump.glb",
-            "left_strafe": "models/animations/left strafe.glb", "left_strafe_walking": "models/animations/left strafe walking.glb",
-            "left_turn_90": "models/animations/left turn 90.glb", "left_turn": "models/animations/left turn.glb",
-            "right_strafe": "models/animations/right strafe.glb", "right_strafe_walking": "models/animations/right strafe walking.glb",
-            "right_turn_90": "models/animations/right turn 90.glb", "right_turn": "models/animations/right turn.glb",
-            "run": "models/animations/running.glb", "walk": "models/animations/walking.glb",
-            "thinking": "models/animations/Thinking.glb", "executing": "models/animations/Searching Files High.glb",
-            "searching": "models/animations/Rummaging.glb"
-        }
         
         try:
             self.actor = Actor(model_path, animations_to_load)
@@ -77,6 +86,8 @@ class JasperWorker(QThread):
 
 
 class MainWindow(QMainWindow):
+    animation_request_signal = pyqtSignal(str, int)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Jasper Assistant")
@@ -84,12 +95,14 @@ class MainWindow(QMainWindow):
         
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
-        layout = QVBoxLayout(main_widget)
+        layout = QHBoxLayout(main_widget)
         
         self.world = JasperPandaWorld()
         
         self.panda_widget = QPanda3DWidget(self.world)
         layout.addWidget(self.panda_widget, 1)
+
+        io_layout = QVBoxLayout()
 
         controls_layout = QHBoxLayout()
         self.input_field = QLineEdit()
@@ -100,21 +113,99 @@ class MainWindow(QMainWindow):
         self.send_button = QPushButton("Send")
         self.send_button.clicked.connect(self.send_from_gui)
         controls_layout.addWidget(self.send_button)
-        layout.addLayout(controls_layout)
         
-        self.output_label = QLabel("Welcome.")
-        self.output_label.setStyleSheet("font-size: 14px; padding: 5px;")
-        layout.addWidget(self.output_label)
+        self.output_text_edit = QTextEdit()
+        self.output_text_edit.setReadOnly(True)
+        self.output_text_edit.setStyleSheet("font-size: 14px; padding: 5px;")
+        io_layout.addWidget(self.output_text_edit)
+        io_layout.addLayout(controls_layout)
 
-        self.jasper = Jasper(client) 
+        layout.addLayout(io_layout)
+
+        animation_prompt = open("animation_prompt.md").read()
+        animations_to_ignore = ["idle", "thinking", "executing", "searching"]
+        animations = [animation for animation in animations_to_load.keys() if animation not in animations_to_ignore]
+        animation_prompt = Template(animation_prompt).render(
+            animations = '\n- '.join(animations)
+        )
+
+        self.jasper = Jasper(client, overrides={"sys_prompt": animation_prompt, "execute": {"animation": self.handle_animation}}) 
         self.jasper_worker = None
+
+        self.is_custom_animation_active = False
+        self.custom_animation_timer = QTimer(self)
+        self.custom_animation_timer.setSingleShot(True)
+        self.custom_animation_timer.timeout.connect(self.return_to_idle)
+
+        self.animation_request_signal.connect(self._perform_animation_in_gui_thread)
 
     def handle_jasper_info(self, info: dict):
         if message := info.get("message"):
-            self.output_label.setText(message)
+            self.output_text_edit.append(message)
         if state := info.get("state"):
             if hasattr(self.world, 'actor') and self.world.actor:
-                self.world.actor.loop(state)
+                if not self.is_custom_animation_active:
+                    current_animation = self.world.actor.getCurrentAnim()
+                    if current_animation != state:
+                        self.world.actor.loop(state)
+                map = {
+                    "idle": None,
+                    "thinking": "Thinking...",
+                    "executing": "Executing code...",
+                    "searching": "Searching the web..."
+                }
+                text = map.get(info["state"])
+                self.output_text_edit.append(text)
+
+    def _perform_animation_in_gui_thread(self, animation: str, delay_ms: int):
+        try:
+            if hasattr(self.world, 'actor') and self.world.actor:
+                if self.custom_animation_timer.isActive():
+                    self.custom_animation_timer.stop()
+
+                self.world.actor.stop()
+                self.is_custom_animation_active = True
+                self.world.actor.play(animation)
+                
+                self.custom_animation_timer.start(delay_ms)
+                return "Animation initiated successfully."
+            return "Warning: Actor not yet initialized (GUI thread)."
+        except Exception as e:
+            self.is_custom_animation_active = False
+            if self.custom_animation_timer.isActive():
+                self.custom_animation_timer.stop()
+            return f"Error playing animation in GUI thread: {e}"
+
+
+    def handle_animation(self, animation):
+        try:
+            if not (hasattr(self.world, 'actor') and self.world.actor):
+                return "Warning: Actor not yet initialized."
+
+            anim_length = 0
+            try:
+                duration_val = self.world.actor.getDuration(animation)
+                if duration_val is not None:
+                    anim_length = duration_val
+                else:
+                    print(f"Warning: getDuration returned None for {animation.strip()}. Defaulting to 0.")
+            except Exception as e:
+                print(f"Warning: Could not get animation length for {animation.strip()}: {e}")
+            
+            effective_anim_length = float(anim_length) if anim_length is not None else 0.0
+            delay_ms = max(2000, int(effective_anim_length * 1000)) if effective_anim_length > 0 else 2000
+
+            self.animation_request_signal.emit(animation, delay_ms)
+            
+            return "Animation Successful."
+        except Exception as e:
+            return f"Error preparing animation: {e}"
+        
+    def return_to_idle(self):
+        if hasattr(self.world, 'actor') and self.world.actor:
+            if self.is_custom_animation_active:
+                self.world.actor.loop('idle')
+        self.is_custom_animation_active = False
 
     def send_from_gui(self):
         text_to_send = self.input_field.text()
@@ -123,6 +214,7 @@ class MainWindow(QMainWindow):
             self.jasper_worker.info_received.connect(self.handle_jasper_info)
             self.jasper_worker.start()
             self.input_field.clear()
+            self.output_text_edit.append("...")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
