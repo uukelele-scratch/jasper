@@ -116,6 +116,7 @@ class MainWindow(QMainWindow):
         
         self.output_text_edit = QTextEdit()
         self.output_text_edit.setReadOnly(True)
+        self.output_text_edit.setAcceptRichText(True)
         self.output_text_edit.setStyleSheet("font-size: 14px; padding: 5px;")
         io_layout.addWidget(self.output_text_edit)
         io_layout.addLayout(controls_layout)
@@ -210,11 +211,11 @@ class MainWindow(QMainWindow):
     def send_from_gui(self):
         text_to_send = self.input_field.text()
         if text_to_send.strip() != "" and (self.jasper_worker is None or not self.jasper_worker.isRunning()):
+            self.output_text_edit.append(f">> {text_to_send}")
             self.jasper_worker = JasperWorker(text_to_send, self.jasper)
             self.jasper_worker.info_received.connect(self.handle_jasper_info)
             self.jasper_worker.start()
             self.input_field.clear()
-            self.output_text_edit.append("...")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

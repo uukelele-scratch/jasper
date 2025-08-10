@@ -11,6 +11,8 @@ import threading
 import time
 import googlesearch
 from typing import Callable
+import json
+from jsonpath_ng import jsonpath, parse
 
 client = OpenAI(
     api_key = os.getenv("GEMINI_API_KEY"),
@@ -18,6 +20,16 @@ client = OpenAI(
 )
 
 DEBUG = bool(os.getenv("DEBUG")) or False
+if DEBUG: print("[+] Debug mode is enabled.")
+
+MEMORY_FILE = "memory.json"
+
+def write_memory(data): return json.dump(data, open(MEMORY_FILE, 'w'))
+def read_memory(): return json.load(open(MEMORY_FILE))
+
+if not os.path.exists(MEMORY_FILE):
+    print("[+] Memory file does not exist. Initialising new session.")
+    write_memory({})
 
 class Jasper:
     def __init__(self, client: OpenAI, model: str = "gemini-2.5-flash", callback: Callable = None, overrides: dict = {}):
@@ -34,6 +46,7 @@ class Jasper:
             is_admin = self._is_admin(),
             user = getpass.getuser(),
             device_name = platform.node(),
+            memory = read_memory(),
         )
 
         self.overrides = overrides
@@ -61,12 +74,12 @@ class Jasper:
 
     def _strip_codeblocks(self, text):
         # Remove all execute code blocks from the text
-        pattern = r"```execute:\w+\n.*?```"
+        pattern = r"```execute:[^\n]+\n.*?```"
         return re.sub(pattern, "", text, flags=re.DOTALL).strip()
     
     def _process_output(self, text):
         # Extract all ```execute:<lang> ... ``` blocks from the text
-        pattern = r"```execute:(\w+)\n(.*?)```"
+        pattern = r"```execute:([^\n]+)\n(.*?)```"
         matches = re.findall(pattern, text, re.DOTALL)
         return matches  # List of tuples: (lang, code)
     
@@ -99,6 +112,38 @@ class Jasper:
             for result in results:
                 res += f"\n### {result.title}\n{result.url}\n{result.description}"
             return res
+        elif lang.startswith("memory"):
+            command = lang.split(":")
+            if len(command) > 3 or len(command) < 2:
+                return "Invalid usage of memory tool. Refer to system prompt for usage guidelines."
+            verb = command[1]
+            if len(command) == 2 and verb == "fetch":
+                return str(read_memory())
+            elif verb == "fetch":
+                path = command[2]
+                path = parse(path)
+                matches = path.find(read_memory())
+                values = [match.value for match in matches]
+                return str(values)
+            elif verb == "store":
+                if len(command) < 3:
+                    return "Missing path for store command."
+                path = command[2]
+                mem = read_memory()
+
+                def set_in_dict(data, path, value):
+                    keys = path.split('.')
+                    d = data
+                    for key in keys[:-1]:
+                        if key not in d or not isinstance(d[key], dict):
+                            d[key] = {}
+                        d = d[key]
+                    d[keys[-1]] = value
+
+                set_in_dict(mem, path, code.strip())
+                write_memory(mem)
+                return "Memory updated."
+            
         elif self.overrides.get("execute") and self.overrides["execute"].get(lang):
             return self.overrides["execute"][lang](code)
         else:
@@ -128,8 +173,8 @@ class Jasper:
             for command in commands:
                 try:
                     res = self._execute_code(command)
-                finally:
-                    pass
+                except Exception as e:
+                    res = f"Error executing: {e}"
                 responses += res + "\n"
             responses += "All commands executed."
             if DEBUG: print(responses)
