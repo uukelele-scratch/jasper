@@ -41,7 +41,8 @@ def callback(info: dict):
             "idle": None,
             "thinking": "Thinking...",
             "executing": "Executing code...",
-            "searching": "Searching the web..."
+            "searching": "Searching the web...",
+            "analysing": "Analysing files...",
         }
         text = map.get(info["state"])
         if info["state"] == "idle" and current_spinner[0]:

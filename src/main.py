@@ -40,7 +40,8 @@ animations_to_load = {
     "walk":                "models/animations/walking.glb",
     "thinking":            "models/animations/Thinking.glb",
     "executing":           "models/animations/Searching Files High.glb",
-    "searching":           "models/animations/Rummaging.glb"
+    "searching":           "models/animations/Rummaging.glb",
+    "analysing":           "models/animations/Searching Files High.glb",
 }
 
 class JasperPandaWorld(Panda3DWorld):
@@ -153,7 +154,8 @@ class MainWindow(QMainWindow):
                     "idle": None,
                     "thinking": "Thinking...",
                     "executing": "Executing code...",
-                    "searching": "Searching the web..."
+                    "searching": "Searching the web...",
+                    "analysing": "Analysing files...",
                 }
                 text = map.get(info["state"])
                 self.output_text_edit.append(text)

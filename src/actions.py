@@ -4,7 +4,8 @@ import sys
 import getpass
 from jinja2 import Template
 from dotenv import load_dotenv; load_dotenv()
-from openai import OpenAI
+from google import genai
+from google.genai import types
 import re
 import subprocess
 import threading
@@ -13,10 +14,10 @@ import googlesearch
 from typing import Callable
 import json
 from jsonpath_ng import jsonpath, parse
+from base64 import b64encode
 
-client = OpenAI(
+client = genai.Client(
     api_key = os.getenv("GEMINI_API_KEY"),
-    base_url = "https://generativelanguage.googleapis.com/v1beta/openai/",
 )
 
 DEBUG = bool(os.getenv("DEBUG")) or False
@@ -32,7 +33,7 @@ if not os.path.exists(MEMORY_FILE):
     write_memory({})
 
 class Jasper:
-    def __init__(self, client: OpenAI, model: str = "gemini-2.5-flash", callback: Callable = None, overrides: dict = {}):
+    def __init__(self, client: genai.Client, model: str = "gemini-2.5-flash", callback: Callable = None, overrides: dict = {}):
         self.client = client
         self.model = model
         self.callback = callback or (lambda *a, **k: None)
@@ -54,10 +55,11 @@ class Jasper:
         if overrides.get("sys_prompt"):
             self.prompt += "\n" + overrides["sys_prompt"]
 
-        self.messages = [{
-            "role": "system",
-            "content": self.prompt
-        }]
+        self.messages = []
+
+        self.generation_config = types.GenerateContentConfig(
+            system_instruction=self.prompt
+        )
 
     def _is_admin(self):
         try:
@@ -112,6 +114,26 @@ class Jasper:
             for result in results:
                 res += f"\n### {result.title}\n{result.url}\n{result.description}"
             return res
+        elif lang.startswith("analyse"):
+            _, mimetype = lang.split(":")
+            mimetype = mimetype.strip().lower()
+            filepath = code.strip()
+            if mimetype == "text/plain":
+                return f"File: {filepath}\n\n{open(filepath).read()}"
+            data = open(filepath, 'rb').read()
+            filepart = types.Part.from_bytes(
+                data=data,
+                mime_type=mimetype,
+            )
+            contents = types.Content(
+                role = "user",
+                parts = [
+                    filepart,
+                    types.Part(text = f"File: {filepath}\nMimetype: {mimetype}")
+                ]
+            )
+            self.messages.append(contents)
+            return "The file has been attached for you to work with."
         elif lang.startswith("memory"):
             command = lang.split(":")
             if len(command) > 3 or len(command) < 2:
@@ -150,22 +172,27 @@ class Jasper:
             return f"Unknown execution language: {lang}"
         
     def send_message(self, message):
-        self.messages.append({
-            "role": "user",
-            "content": message
-        })
+        self.messages.append(types.Content(
+            role = "user",
+            parts = [
+                types.Part(text = message)
+            ],
+        ))
         self.callback({"state":"thinking"})
-        res = self.client.chat.completions.create(
-            model=self.model,
-            messages=self.messages,
+        res = self.client.models.generate_content(
+            model = self.model,
+            contents = self.messages,
+            config = self.generation_config,
         )
         self.callback({"state":"idle"})
-        output = res.choices[0].message.content
+        output = res.text
         if DEBUG: print(output)
-        self.messages.append({
-            "role": "assistant",
-            "content": output
-        })
+        self.messages.append(types.Content(
+            role = "model",
+            parts = [
+                types.Part(text = output)
+            ],
+        ))
         commands = self._process_output(output)
         while commands:
             self.callback({"message": self._strip_codeblocks(output)})
@@ -179,14 +206,15 @@ class Jasper:
             responses += "All commands executed."
             if DEBUG: print(responses)
             
-            self.messages.append({"role": "user", "content": responses})
+            self.messages.append(types.Content(role="user", parts=[types.Part(text=responses)]))
             self.callback({"state":"thinking"})
-            res = client.chat.completions.create(
+            res = self.client.models.generate_content(
                 model=self.model,
-                messages=self.messages,
+                contents=self.messages,
+                config=self.generation_config,
             )
             self.callback({"state":"idle"})
-            output = res.choices[0].message.content
+            output = res.text
             if DEBUG: print(output)
             commands = self._process_output(output)
         self.callback({"message": self._strip_codeblocks(output)})

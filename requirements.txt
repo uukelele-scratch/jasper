@@ -3,7 +3,7 @@ requests
 jinja2
 panda3d-gltf
 python-dotenv
-openai
+google-genai
 googlesearch-python
 PyQt5
 QPanda3D
