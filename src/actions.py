@@ -203,7 +203,7 @@ class Jasper:
                 except Exception as e:
                     res = f"Error executing: {e}"
                 responses += res + "\n"
-            responses += "All commands executed."
+            responses += "All commands executed. Remember that the user cannot see this output and cannot see your command(s) either, so you must explain it to them if necessary."
             if DEBUG: print(responses)
             
             self.messages.append(types.Content(role="user", parts=[types.Part(text=responses)]))
