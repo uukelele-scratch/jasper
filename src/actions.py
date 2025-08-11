@@ -35,7 +35,7 @@ if not os.path.exists(MEMORY_FILE):
 class Jasper:
     def __init__(self, client: genai.Client, model: str = "gemini-2.5-flash", callback: Callable = None, overrides: dict = {}):
         self.client = client
-        self.model = model
+        self.model = os.getenv("GEMINI_MODEL") or model
         self.callback = callback or (lambda *a, **k: None)
         
         self.sys_prompt = open("sys_prompt.md").read()
