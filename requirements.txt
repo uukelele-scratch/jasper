@@ -8,3 +8,4 @@ googlesearch-python
 PyQt5
 QPanda3D
 jsonpath-ng
+prompt_toolkit
