@@ -5,6 +5,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts import print_formatted_text
+from google.genai.errors import ClientError # Import ClientError
 
 def spinner(message="Executing code..."):
     spinner_chars = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏']
@@ -32,7 +33,11 @@ def spinner(message="Executing code..."):
     return stop
 
 
+from google.genai import errors
+import google.genai.errors
 from actions import Jasper, client
+import google.genai.errors
+import google.genai.errors
 
 current_spinner = [None]
 
@@ -92,4 +97,40 @@ while True:
             with patch_stdout():
                 print_formatted_text(HTML(f'<ansired>Command not found: \'{inp}\'. Type \'/help\' for a list of commands.</ansired>'))
     else:
-        jasper.send_message(inp)
+        try:
+        try:
+        try:
+            jasper.send_message(inp)
+        except google.genai.errors.ClientError as e:
+            if e.status_code == 429 and "RESOURCE_EXHAUSTED" in str(e):
+                with patch_stdout():
+                    print_formatted_text(HTML(
+                        '<ansiyellow>It looks like you\'ve hit your API quota for the Gemini model. '
+                        'Please wait a minute or two and try again, or check your Google Cloud project\'s '
+                        'billing and quota settings if this issue persists. '
+                        'More info: https://ai.google.dev/gemini-api/docs/rate-limits</ansiyellow>'
+                    ))
+            else:
+                with patch_stdout():
+                    print_formatted_text(HTML(f'<ansired>An unexpected API error occurred: {e}</ansired>'))
+        except Exception as e:
+            with patch_stdout():
+                print_formatted_text(HTML(f'<ansired>An unexpected error occurred: {e}</ansired>'))
+        except errors.ClientError as e:
+            with patch_stdout():
+                print_formatted_text(HTML(f'<ansired>An API error occurred: {e.message}. Please try again later or check your API quota.</ansired>'))
+                if e.response and e.response.json():
+                    error_details = e.response.json().get('error', {}).get('message', 'No additional details.')
+                    print_formatted_text(HTML(f'<ansired>Details: {error_details}</ansired>'))
+        except Exception as e:
+            with patch_stdout():
+                print_formatted_text(HTML(f'<ansired>An unexpected error occurred: {e}</ansired>'))
+        except ClientError as e:
+            with patch_stdout():
+                if e.status_code == 429:
+                    print_formatted_text(HTML('<ansired>API Quota Exceeded: You have made too many requests. Please wait a moment and try again, or check your Google Gemini API plan for more details.</ansired>'))
+                else:
+                    print_formatted_text(HTML(f'<ansired>An API error occurred: {e.message}</ansired>'))
+        except Exception as e:
+            with patch_stdout():
+                print_formatted_text(HTML(f'<ansired>An unexpected error occurred: {e}</ansired>'))
