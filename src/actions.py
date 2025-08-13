@@ -1,3 +1,4 @@
+from google.api_core.exceptions import ResourceExhausted
 import os
 import platform
 import sys
@@ -208,12 +209,31 @@ class Jasper:
             
             self.messages.append(types.Content(role="user", parts=[types.Part(text=responses)]))
             self.callback({"state":"thinking"})
+            max_retries = 3
+                    for attempt in range(max_retries):
+                        try:
             res = self.client.models.generate_content(
-                model=self.model,
-                contents=self.messages,
-                config=self.generation_config,
-            )
-            self.callback({"state":"idle"})
+                                model=self.model,
+                                contents=self.messages,
+                                config=self.generation_config,
+                            )
+                            self.callback({"state":"idle"})
+                            break # If successful, break out of the retry loop
+                        except google.genai.errors.ClientError as e:
+                            if e.status_code == 429 and "RESOURCE_EXHAUSTED" in str(e):
+                                wait_time = 60 # Default wait time in seconds
+                                # print(f"[!] Rate limit exceeded. Waiting {wait_time} seconds before retrying... (Attempt {attempt + 1}/{max_retries})") # Removed print, handled by callback
+                                self.callback({"message": f"Rate limit exceeded. Retrying in {wait_time} seconds... (Attempt {attempt + 1}/{max_retries})"})
+                                time.sleep(wait_time)
+                            else:
+                                self.callback({"state":"idle"})
+                                raise e # Re-raise other ClientErrors
+                        except Exception as e:
+                            self.callback({"state":"idle"})
+                            raise e # Catch any other unexpected errors
+                    else:
+                        self.callback({"state":"idle"})
+                        raise Exception("Failed to generate content after multiple retries due to rate limiting.")
             output = res.text
             if DEBUG: print(output)
             commands = self._process_output(output)
