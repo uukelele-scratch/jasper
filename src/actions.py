@@ -6,7 +6,7 @@ import getpass
 from jinja2 import Template
 from dotenv import load_dotenv; load_dotenv()
 from google import genai
-from google.genai import types
+from google.genai import types, errors
 import re
 import subprocess
 import threading
@@ -172,6 +172,27 @@ class Jasper:
         else:
             return f"Unknown execution language: {lang}"
         
+
+    def _generate_content_with_retries(self, contents):
+        while True:
+            try:
+                res = self.client.models.generate_content(
+                    model = self.model,
+                    contents = contents,
+                    config = self.generation_config,
+                )
+                return res
+            except errors.ClientError as e:
+                if e.status_code == 429 and "RESOURCE_EXHAUSTED" in str(e):
+                    print("API rate limited. Waiting 60 seconds before retrying...")
+                    import time # Ensure time is imported here if not global
+                    time.sleep(60) # Wait for 1 minute
+                else:
+                    raise # Re-raise other client errors
+            except Exception as e:
+                print(f"An unexpected error occurred during content generation: {e}")
+                raise # Re-raise other unexpected errors
+
     def send_message(self, message):
         self.messages.append(types.Content(
             role = "user",
@@ -180,11 +201,7 @@ class Jasper:
             ],
         ))
         self.callback({"state":"thinking"})
-        res = self.client.models.generate_content(
-            model = self.model,
-            contents = self.messages,
-            config = self.generation_config,
-        )
+        res = self._generate_content_with_retries(self.messages)
         self.callback({"state":"idle"})
         output = res.text
         if DEBUG: print(output)
