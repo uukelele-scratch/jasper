@@ -98,8 +98,6 @@ while True:
                 print_formatted_text(HTML(f'<ansired>Command not found: \'{inp}\'. Type \'/help\' for a list of commands.</ansired>'))
     else:
         try:
-        try:
-        try:
             jasper.send_message(inp)
         except google.genai.errors.ClientError as e:
             if e.status_code == 429 and "RESOURCE_EXHAUSTED" in str(e):
