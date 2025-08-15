@@ -216,5 +216,11 @@ class Jasper:
             self.callback({"state":"idle"})
             output = res.text
             if DEBUG: print(output)
+            self.messages.append(types.Content(
+                role = "model",
+                parts = [
+                    types.Part(text = output)
+                ],
+            ))
             commands = self._process_output(output)
         self.callback({"message": self._strip_codeblocks(output)})
